@@ -8,16 +8,15 @@ import board
 import busio
 import neopixel
 from digitalio import DigitalInOut
-
-from adafruit_esp32spi import adafruit_esp32spi
-from adafruit_esp32spi.adafruit_esp32spi_wifimanager import WiFiManager
 import displayio
 from adafruit_display_text.label import Label
 from adafruit_display_shapes.rect import Rect
 import terminalio
+from adafruit_esp32spi import adafruit_esp32spi
+from adafruit_esp32spi.adafruit_esp32spi_wifimanager import WiFiManager
+from displayio import OnDiskBitmap, TileGrid
 
 # Get wifi details and more from a settings.toml file
-# tokens used by this Demo: CIRCUITPY_WIFI_SSID, CIRCUITPY_WIFI_PASSWORD
 ssid = getenv("CIRCUITPY_WIFI_SSID")
 password = getenv("CIRCUITPY_WIFI_PASSWORD")
 JSON_URL = getenv("BRIGHTWHEEL_PROXY")
@@ -50,13 +49,11 @@ ROTATE_SECONDS = 15
 ENTRIES_PER_PAGE = 6
 
 def paginate_entries_by_height(entries, line_height, screen_height, top_margin=20, bottom_margin=20):
-    """Paginate entries dynamically based on how many lines fit per screen."""
     pages = []
     current_page = []
     current_y = top_margin
 
     for entry in entries:
-        # Estimate number of lines this entry will take
         colon_positions = [pos for pos, c in enumerate(entry) if c == ":"]
         if len(colon_positions) >= 2:
             second_colon = colon_positions[1]
@@ -66,17 +63,15 @@ def paginate_entries_by_height(entries, line_height, screen_height, top_margin=2
             time_and_action = entry.strip()
             message = ""
 
-        # One line for time
-        line_count = 1
+        line_count = 1  # For time/action line
 
-        # Wrap message lines
         if message:
             max_chars = 40
             words = message.split()
             current = ""
             for word in words:
                 test = current + " " + word if current else word
-                if len(test) <= max_chars - 3:  # account for indent
+                if len(test) <= max_chars - 3:
                     current = test
                 else:
                     line_count += 1
@@ -84,10 +79,8 @@ def paginate_entries_by_height(entries, line_height, screen_height, top_margin=2
             if current:
                 line_count += 1
 
-        # Add padding between entries
         line_count += 1  # padding
 
-        # Check if it fits on screen
         if current_y + (line_count * line_height) > screen_height - bottom_margin:
             pages.append(current_page)
             current_page = []
@@ -96,7 +89,6 @@ def paginate_entries_by_height(entries, line_height, screen_height, top_margin=2
         current_page.append(entry)
         current_y += line_count * line_height
 
-    # Add last page
     if current_page:
         pages.append(current_page)
 
@@ -105,9 +97,14 @@ def paginate_entries_by_height(entries, line_height, screen_height, top_margin=2
 def create_display_page(entries_page, total_entries, page_index, total_pages):
     group = displayio.Group()
 
-    # Background
-    bg = Rect(0, 0, display.width, display.height, fill=0x000000)
-    group.append(bg)
+    # Background image
+    try:
+        bitmap = OnDiskBitmap("/background.bmp")
+        tile_grid = TileGrid(bitmap, pixel_shader=bitmap.pixel_shader)
+        group.append(tile_grid)
+    except Exception as e:
+        print("Failed to load background image:", e)
+        group.append(Rect(0, 0, display.width, display.height, fill=0x000000))
 
     # Title
     title = Label(terminalio.FONT, text="Beau's Day", color=0x00FF00, x=5, y=5)
@@ -121,7 +118,6 @@ def create_display_page(entries_page, total_entries, page_index, total_pages):
         if y > display.height - 20:
             break
 
-        # Split entry
         colon_positions = [pos for pos, c in enumerate(entry) if c == ":"]
         if len(colon_positions) >= 2:
             second_colon = colon_positions[1]
@@ -131,12 +127,10 @@ def create_display_page(entries_page, total_entries, page_index, total_pages):
             time_and_action = entry.strip()
             message = ""
 
-        # Time + action line (cyan)
         time_label = Label(terminalio.FONT, text=time_and_action, color=0x00FFFF, x=5, y=y)
         group.append(time_label)
         y += line_spacing
 
-        # Indented message lines (white)
         if message:
             indent = "   "
             words = message.split()
@@ -162,22 +156,16 @@ def create_display_page(entries_page, total_entries, page_index, total_pages):
 
         y += 4  # padding
 
-    # Footer with page info
     footer_text = f"{total_entries} events | Page {page_index + 1} of {total_pages}"
     footer_label = Label(terminalio.FONT, text=footer_text, color=0x888888, x=5, y=display.height - 10)
     group.append(footer_label)
 
     return group
 
-
-display = board.DISPLAY
-display.auto_refresh = False
-
 pages = paginate_entries_by_height(json, line_height=12, screen_height=display.height)
 current_page = 0
 last_switch = time.monotonic()
 
-# First display
 group = create_display_page(pages[current_page], len(json), current_page, len(pages))
 display.root_group = group
 display.refresh()
