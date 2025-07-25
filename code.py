@@ -8,10 +8,12 @@ import board
 import busio
 import neopixel
 from digitalio import DigitalInOut
+
 import displayio
 from adafruit_display_text.label import Label
 from adafruit_display_shapes.rect import Rect
 import terminalio
+
 from adafruit_esp32spi import adafruit_esp32spi
 from adafruit_esp32spi.adafruit_esp32spi_wifimanager import WiFiManager
 from displayio import OnDiskBitmap, TileGrid
@@ -166,12 +168,36 @@ pages = paginate_entries_by_height(json, line_height=12, screen_height=display.h
 current_page = 0
 last_switch = time.monotonic()
 
+# Initial page
 group = create_display_page(pages[current_page], len(json), current_page, len(pages))
 display.root_group = group
 display.refresh()
 
+FETCH_INTERVAL = 300  # 5 minutes
+last_fetch = time.monotonic()
+
 while True:
     now = time.monotonic()
+
+    # Check if it's time to fetch new data
+    if now - last_fetch >= FETCH_INTERVAL:
+        try:
+            print("Refreshing data...")
+            response = wifi.get(JSON_URL)
+            json = response.json()
+            pages = paginate_entries_by_height(json, line_height=12, screen_height=display.height)
+            current_page = 0
+            last_fetch = now
+
+            # Show first page of new data
+            group = create_display_page(pages[current_page], len(json), current_page, len(pages))
+            display.root_group = group
+            display.refresh()
+            last_switch = now  # Reset page switch timer
+        except OSError as e:
+            print("Error during data refresh:", e)
+
+    # Rotate page
     if len(pages) > 1 and now - last_switch >= ROTATE_SECONDS:
         current_page = (current_page + 1) % len(pages)
         group = create_display_page(pages[current_page], len(json), current_page, len(pages))
@@ -180,3 +206,4 @@ while True:
         last_switch = now
 
     time.sleep(0.1)
+
